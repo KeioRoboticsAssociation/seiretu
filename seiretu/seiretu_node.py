@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from stm32_mavlink_interface.msg import ServoCommand
+from stm32_mavlink_interface.msg import ServoCommand, ServoState
 
 
 class SeiretsuNode(Node):
@@ -25,7 +25,21 @@ class SeiretsuNode(Node):
             10
         )
         
-        self.get_logger().info('Seiretu node started, listening to /seiretu topic')
+        # Create subscriber for servo states
+        self.servo_state_subscription = self.create_subscription(
+            ServoState,
+            '/servo/states',
+            self.servo_state_callback,
+            10
+        )
+        
+        # Create timer to log servo angle every second
+        self.timer = self.create_timer(1.0, self.timer_callback)
+        
+        # Store latest servo state
+        self.latest_servo_state = None
+        
+        self.get_logger().info('Seiretu node started, listening to /seiretu topic and monitoring servo states')
     
     def seiretu_callback(self, msg):
         self.get_logger().info(f'Received message: {msg.data}')
@@ -48,6 +62,23 @@ class SeiretsuNode(Node):
         # Publish the servo command
         self.servo_publisher.publish(servo_msg)
         self.get_logger().info(f'Sent servo command: servo_id={servo_msg.servo_id}, angle={servo_msg.angle_deg}°')
+    
+    def servo_state_callback(self, msg):
+        # Store the latest servo state for our target servo (ID 1)
+        if msg.servo_id == 1:
+            self.latest_servo_state = msg
+    
+    def timer_callback(self):
+        # Log servo angle every second
+        if self.latest_servo_state is not None:
+            self.get_logger().info(
+                f'Servo {self.latest_servo_state.servo_id}: '
+                f'current={self.latest_servo_state.current_angle_deg:.1f}°, '
+                f'target={self.latest_servo_state.target_angle_deg:.1f}°, '
+                f'enabled={self.latest_servo_state.enabled}'
+            )
+        else:
+            self.get_logger().info('No servo state data received yet')
 
 
 def main(args=None):
