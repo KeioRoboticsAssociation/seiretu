@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from stm32_mavlink_interface.msg import ServoCommand, ServoState
+from stm32_mavlink_interface.msg import ServoCommand, ServoState, DCMotorCommand, DCMotorState
 
 
 class SeiretsuNode(Node):
@@ -24,7 +24,14 @@ class SeiretsuNode(Node):
             '/servo/command',
             10
         )
-        
+
+        # Create publisher for DC motor commands
+        self.dcmotor_publisher = self.create_publisher(
+            DCMotorCommand,
+            '/dcmotor/command',
+            10
+        )
+
         # Create subscriber for servo states
         self.servo_state_subscription = self.create_subscription(
             ServoState,
@@ -32,22 +39,59 @@ class SeiretsuNode(Node):
             self.servo_state_callback,
             10
         )
+
+        # Create subscriber for DC motor states
+        self.dcmotor_state_subscription = self.create_subscription(
+            DCMotorState,
+            '/dcmotor/state',
+            self.dcmotor_state_callback,
+            10
+        )
         
         # Create timer to log servo angle every second
         self.timer = self.create_timer(1.0, self.timer_callback)
         
-        # Store latest servo state
+        # Store latest servo state and DC motor state
         self.latest_servo_state = None
+        self.latest_dcmotor_state = None
+        self.current_dc_angle = 0.0  # Track current DC motor angle for incremental movements
         
         self.get_logger().info('Seiretu node started, listening to /seiretu topic and monitoring servo states')
     
     def seiretu_callback(self, msg):
         self.get_logger().info(f'Received message: {msg.data}')
-        
-        # Check if the message ends with 'left'
-        if msg.data.endswith('left'):
+
+        # Handle new function commands
+        if msg.data == 'shoot':
+            self.get_logger().info('Executing shoot command')
+            self.shoot()
+        elif msg.data == 'back':
+            self.get_logger().info('Executing back command')
+            self.back()
+        elif msg.data == 'moveleft':
+            self.get_logger().info('Executing moveleft command')
+            self.moveleft()
+        elif msg.data == 'moveright':
+            self.get_logger().info('Executing moveright command')
+            self.moveright()
+        elif msg.data.startswith('moveDC'):
+            # Extract angle from command like "moveDC 1.5"
+            try:
+                parts = msg.data.split()
+                if len(parts) == 2:
+                    angle = float(parts[1])
+                    self.get_logger().info(f'Executing moveDC command with angle: {angle}')
+                    self.moveDC(angle)
+                else:
+                    self.get_logger().warn('moveDC command requires angle parameter: "moveDC <angle>"')
+            except ValueError:
+                self.get_logger().error('Invalid angle parameter for moveDC command')
+        # Original functionality - check if the message ends with 'left'
+        elif msg.data.endswith('left'):
             self.get_logger().info('Command ends with "left", moving servo')
             self.send_servo_command()
+        else:
+            self.get_logger().info('Unknown command, ignoring')
     
     def send_servo_command(self):
         # Create servo command message
@@ -67,6 +111,12 @@ class SeiretsuNode(Node):
         # Store the latest servo state for our target servo (ID 1)
         if msg.servo_id == 1:
             self.latest_servo_state = msg
+
+    def dcmotor_state_callback(self, msg):
+        # Store the latest DC motor state for motor ID 10
+        if msg.motor_id == 10:
+            self.latest_dcmotor_state = msg
+            self.current_dc_angle = msg.position_rad
     
     def timer_callback(self):
         # Log servo angle every second
@@ -79,6 +129,104 @@ class SeiretsuNode(Node):
             )
         else:
             self.get_logger().info('No servo state data received yet')
+
+    def moveDC(self, angle: float):
+        """Sets DC motor ID 10 to angle position control"""
+        dcmotor_msg = DCMotorCommand()
+        dcmotor_msg.motor_id = 10
+        dcmotor_msg.control_mode = 0  # Position control
+        dcmotor_msg.target_value = angle  # Target angle in radians
+        dcmotor_msg.enabled = True
+
+        self.dcmotor_publisher.publish(dcmotor_msg)
+        self.get_logger().info(f'DC Motor command sent: ID={dcmotor_msg.motor_id}, angle={angle:.3f} rad, mode=position')
+
+    def shoot(self):
+        """Controls servos IDs 1, 3, and 4 with predefined angles for shooting"""
+        # Servo ID 1 - angle: 120°
+        servo1_msg = ServoCommand()
+        servo1_msg.header.stamp = self.get_clock().now().to_msg()
+        servo1_msg.header.frame_id = 'servo_frame'
+        servo1_msg.servo_id = 1
+        servo1_msg.angle_deg = 180.0
+        servo1_msg.pulse_us = 0  # Use angle control
+        servo1_msg.enable = True
+
+        # Servo ID 3 - angle: 90°
+        servo3_msg = ServoCommand()
+        servo3_msg.header.stamp = self.get_clock().now().to_msg()
+        servo3_msg.header.frame_id = 'servo_frame'
+        servo3_msg.servo_id = 3
+        servo3_msg.angle_deg = 180.0
+        servo3_msg.pulse_us = 0  # Use angle control
+        servo3_msg.enable = True
+
+        # Servo ID 4 - angle: 150°
+        servo4_msg = ServoCommand()
+        servo4_msg.header.stamp = self.get_clock().now().to_msg()
+        servo4_msg.header.frame_id = 'servo_frame'
+        servo4_msg.servo_id = 4
+        servo4_msg.angle_deg = 180.0
+        servo4_msg.pulse_us = 0  # Use angle control
+        servo4_msg.enable = True
+
+        # Publish all servo commands
+        self.servo_publisher.publish(servo1_msg)
+        self.servo_publisher.publish(servo3_msg)
+        self.servo_publisher.publish(servo4_msg)
+
+        self.get_logger().info(f'Shoot command executed: Servo 1->{servo1_msg.angle_deg:.3f}°, Servo 3->{servo3_msg.angle_deg:.3f}°, Servo 4->{servo4_msg.angle_deg:.3f}°')
+
+    def back(self):
+        """Controls servos IDs 1, 3, and 4 with back position angles and sets DC motor to 0"""
+        # Servo ID 1 - angle: -90°
+        servo1_msg = ServoCommand()
+        servo1_msg.header.stamp = self.get_clock().now().to_msg()
+        servo1_msg.header.frame_id = 'servo_frame'
+        servo1_msg.servo_id = 1
+        servo1_msg.angle_deg = 0.0
+        servo1_msg.pulse_us = 0  # Use angle control
+        servo1_msg.enable = True
+
+        # Servo ID 3 - angle: 60°
+        servo3_msg = ServoCommand()
+        servo3_msg.header.stamp = self.get_clock().now().to_msg()
+        servo3_msg.header.frame_id = 'servo_frame'
+        servo3_msg.servo_id = 3
+        servo3_msg.angle_deg = 60.0
+        servo3_msg.pulse_us = 0  # Use angle control
+        servo3_msg.enable = True
+
+        # Servo ID 4 - angle: 60°
+        servo4_msg = ServoCommand()
+        servo4_msg.header.stamp = self.get_clock().now().to_msg()
+        servo4_msg.header.frame_id = 'servo_frame'
+        servo4_msg.servo_id = 4
+        servo4_msg.angle_deg = 60.0
+        servo4_msg.pulse_us = 0  # Use angle control
+        servo4_msg.enable = True
+
+        # Publish all servo commands
+        self.servo_publisher.publish(servo1_msg)
+        self.servo_publisher.publish(servo3_msg)
+        self.servo_publisher.publish(servo4_msg)
+
+        # Set DC motor to 0 angle
+        self.moveDC(0.0)
+
+        self.get_logger().info(f'Back command executed: Servo 1->{servo1_msg.angle_deg:.3f}°, Servo 3->{servo3_msg.angle_deg:.3f}°, Servo 4->{servo4_msg.angle_deg:.3f}°, DC Motor->0 rad')
+
+    def moveleft(self):
+        """Increments current DC motor angle by +1 radian"""
+        new_angle = self.current_dc_angle + 1.0
+        self.moveDC(new_angle)
+        self.get_logger().info(f'Move left: DC motor angle {self.current_dc_angle:.3f} -> {new_angle:.3f} rad')
+
+    def moveright(self):
+        """Decrements current DC motor angle by -1 radian"""
+        new_angle = self.current_dc_angle - 1.0
+        self.moveDC(new_angle)
+        self.get_logger().info(f'Move right: DC motor angle {self.current_dc_angle:.3f} -> {new_angle:.3f} rad')
 
 
 def main(args=None):

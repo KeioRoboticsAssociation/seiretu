@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'seiretu_node = seiretu.seiretu_node:main',
+            'seiretu_gui = seiretu.seiretu_gui:main',
         ],
     },
 )
