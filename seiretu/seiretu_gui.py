@@ -60,6 +60,9 @@ class SeiretsuGUI(QMainWindow):
         self.signal_bridge = ROSSignalBridge()
         self.ros_node = SeiretsuGUINode(self.signal_bridge)
 
+        # Initialize current DC angle for GUI access
+        self.current_dc_angle = 0.0
+
         # Connect signals
         self.signal_bridge.dc_motor_state_signal.connect(self.update_dc_motor_state)
         self.signal_bridge.log_message_signal.connect(self.add_log_message)
@@ -253,6 +256,7 @@ class SeiretsuGUI(QMainWindow):
 
         # Add initial log message
         self.add_log_message('Seiretu GUI started - Ready for commands')
+        self.add_log_message(f'Initial DC motor angle: {self.current_dc_angle:.3f} rad')
 
     def spin_ros(self):
         """Spin ROS in separate thread"""
@@ -277,14 +281,36 @@ class SeiretsuGUI(QMainWindow):
 
     def move_left_command(self):
         """Execute moveleft command"""
+        self.add_log_message(f'Moving left from current angle: {self.current_dc_angle:.3f} rad')
         self.ros_node.send_command('moveleft')
 
     def move_right_command(self):
         """Execute moveright command"""
+        self.add_log_message(f'Moving right from current angle: {self.current_dc_angle:.3f} rad')
         self.ros_node.send_command('moveright')
+
+    def get_current_dc_angle(self):
+        """Get the current DC motor angle in radians"""
+        return self.current_dc_angle
+
+    def move_dc_relative(self, relative_angle):
+        """Move DC motor by a relative angle from current position"""
+        target_angle = self.current_dc_angle + relative_angle
+        command = f'moveDC {target_angle:.3f}'
+        self.ros_node.send_command(command)
+        return target_angle
+
+    def move_dc_absolute(self, absolute_angle):
+        """Move DC motor to an absolute angle"""
+        command = f'moveDC {absolute_angle:.3f}'
+        self.ros_node.send_command(command)
+        return absolute_angle
 
     def update_dc_motor_state(self, msg):
         """Update DC motor status display"""
+        # Update GUI's current DC angle
+        self.current_dc_angle = msg.position_rad
+
         self.dc_angle_label.setText(f'DC Motor Angle: {msg.position_rad:.3f} rad')
         self.dc_velocity_label.setText(f'DC Motor Velocity: {msg.velocity_rad_s:.3f} rad/s')
         self.dc_current_label.setText(f'DC Motor Current: {msg.current_a:.3f} A')

@@ -75,17 +75,25 @@ class SeiretsuNode(Node):
             self.get_logger().info('Executing moveright command')
             self.moveright()
         elif msg.data.startswith('moveDC'):
-            # Extract angle from command like "moveDC 1.5"
+            # Extract angle and optional duty cycle from command like "moveDC 1.5" or "moveDC 1.5 0.7"
             try:
                 parts = msg.data.split()
                 if len(parts) == 2:
                     angle = float(parts[1])
-                    self.get_logger().info(f'Executing moveDC command with angle: {angle}')
-                    self.moveDC(angle)
+                    self.get_logger().info(f'Executing moveDC command with angle: {angle} (default duty: 0.5)')
+                    self.moveDC(angle, -0.5)
+                elif len(parts) == 3:
+                    angle = float(parts[1])
+                    duty_cycle = float(parts[2])
+                    if duty_cycle < -1.0 or duty_cycle > 1.0:
+                        self.get_logger().error('Duty cycle must be between -1.0 and 1.0')
+                        return
+                    self.get_logger().info(f'Executing moveDC command with angle: {angle}, duty: {duty_cycle}')
+                    self.moveDC(angle, duty_cycle)
                 else:
-                    self.get_logger().warn('moveDC command requires angle parameter: "moveDC <angle>"')
+                    self.get_logger().warn('moveDC command format: "moveDC <angle>" or "moveDC <angle> <duty_cycle>"')
             except ValueError:
-                self.get_logger().error('Invalid angle parameter for moveDC command')
+                self.get_logger().error('Invalid numeric parameters for moveDC command')
         # Original functionality - check if the message ends with 'left'
         elif msg.data.endswith('left'):
             self.get_logger().info('Command ends with "left", moving servo')
@@ -130,16 +138,17 @@ class SeiretsuNode(Node):
         else:
             self.get_logger().info('No servo state data received yet')
 
-    def moveDC(self, angle: float):
-        """Sets DC motor ID 10 to angle position control"""
+    def moveDC(self, angle: float, duty_cycle: float = 0.5):
+        """Sets DC motor ID 10 to duty-to-position control mode"""
         dcmotor_msg = DCMotorCommand()
         dcmotor_msg.motor_id = 10
-        dcmotor_msg.control_mode = 0  # Position control
-        dcmotor_msg.target_value = angle  # Target angle in radians
+        dcmotor_msg.control_mode = 3  # Duty-to-position control
+        dcmotor_msg.target_value = duty_cycle  # Duty cycle (-1.0 to 1.0)
+        dcmotor_msg.target_position_rad = angle  # Target angle in radians
         dcmotor_msg.enabled = True
 
         self.dcmotor_publisher.publish(dcmotor_msg)
-        self.get_logger().info(f'DC Motor command sent: ID={dcmotor_msg.motor_id}, angle={angle:.3f} rad, mode=position')
+        self.get_logger().info(f'DC Motor duty-to-position command sent: ID={dcmotor_msg.motor_id}, duty={duty_cycle:.3f}, target_angle={angle:.3f} rad')
 
     def shoot(self):
         """Controls servos IDs 1, 3, and 4 with predefined angles for shooting"""
@@ -157,7 +166,7 @@ class SeiretsuNode(Node):
         servo3_msg.header.stamp = self.get_clock().now().to_msg()
         servo3_msg.header.frame_id = 'servo_frame'
         servo3_msg.servo_id = 3
-        servo3_msg.angle_deg = 180.0
+        servo3_msg.angle_deg = 60.0
         servo3_msg.pulse_us = 0  # Use angle control
         servo3_msg.enable = True
 
@@ -166,7 +175,7 @@ class SeiretsuNode(Node):
         servo4_msg.header.stamp = self.get_clock().now().to_msg()
         servo4_msg.header.frame_id = 'servo_frame'
         servo4_msg.servo_id = 4
-        servo4_msg.angle_deg = 180.0
+        servo4_msg.angle_deg = 70.0
         servo4_msg.pulse_us = 0  # Use angle control
         servo4_msg.enable = True
 
@@ -193,7 +202,7 @@ class SeiretsuNode(Node):
         servo3_msg.header.stamp = self.get_clock().now().to_msg()
         servo3_msg.header.frame_id = 'servo_frame'
         servo3_msg.servo_id = 3
-        servo3_msg.angle_deg = 60.0
+        servo3_msg.angle_deg = 180.0
         servo3_msg.pulse_us = 0  # Use angle control
         servo3_msg.enable = True
 
@@ -202,7 +211,7 @@ class SeiretsuNode(Node):
         servo4_msg.header.stamp = self.get_clock().now().to_msg()
         servo4_msg.header.frame_id = 'servo_frame'
         servo4_msg.servo_id = 4
-        servo4_msg.angle_deg = 60.0
+        servo4_msg.angle_deg = 180.0
         servo4_msg.pulse_us = 0  # Use angle control
         servo4_msg.enable = True
 
@@ -217,16 +226,16 @@ class SeiretsuNode(Node):
         self.get_logger().info(f'Back command executed: Servo 1->{servo1_msg.angle_deg:.3f}°, Servo 3->{servo3_msg.angle_deg:.3f}°, Servo 4->{servo4_msg.angle_deg:.3f}°, DC Motor->0 rad')
 
     def moveleft(self):
-        """Increments current DC motor angle by +1 radian"""
+        """Increments current DC motor angle by +1 radian using positive duty cycle"""
         new_angle = self.current_dc_angle + 1.0
-        self.moveDC(new_angle)
-        self.get_logger().info(f'Move left: DC motor angle {self.current_dc_angle:.3f} -> {new_angle:.3f} rad')
+        self.moveDC(new_angle, 0.6)  # Positive duty cycle for left movement
+        self.get_logger().info(f'Move left: DC motor angle {self.current_dc_angle:.3f} -> {new_angle:.3f} rad (duty: +0.6)')
 
     def moveright(self):
-        """Decrements current DC motor angle by -1 radian"""
+        """Decrements current DC motor angle by -1 radian using negative duty cycle"""
         new_angle = self.current_dc_angle - 1.0
-        self.moveDC(new_angle)
-        self.get_logger().info(f'Move right: DC motor angle {self.current_dc_angle:.3f} -> {new_angle:.3f} rad')
+        self.moveDC(new_angle, -0.6)  # Negative duty cycle for right movement
+        self.get_logger().info(f'Move right: DC motor angle {self.current_dc_angle:.3f} -> {new_angle:.3f} rad (duty: -0.6)')
 
 
 def main(args=None):
