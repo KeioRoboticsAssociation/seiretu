@@ -175,8 +175,25 @@ class SeiretsuGUI(QMainWindow):
         self.back_btn.setObjectName('back_btn')
         self.back_btn.clicked.connect(self.back_command)
 
+        # Position-based action buttons
+        self.left_action_btn = QPushButton('⬅️ LEFT')
+        self.left_action_btn.clicked.connect(self.left_action_command)
+
+        self.middle_action_btn = QPushButton('🎯 MIDDLE')
+        self.middle_action_btn.clicked.connect(self.middle_action_command)
+
+        self.right_action_btn = QPushButton('➡️ RIGHT')
+        self.right_action_btn.clicked.connect(self.right_action_command)
+
+        self.close_btn = QPushButton('🔒 CLOSE')
+        self.close_btn.clicked.connect(self.close_command)
+
         action_layout.addWidget(self.shoot_btn, 0, 0)
         action_layout.addWidget(self.back_btn, 0, 1)
+        action_layout.addWidget(self.close_btn, 0, 2)
+        action_layout.addWidget(self.left_action_btn, 1, 0)
+        action_layout.addWidget(self.middle_action_btn, 1, 1)
+        action_layout.addWidget(self.right_action_btn, 1, 2)
 
         left_layout.addWidget(action_group)
 
@@ -187,7 +204,7 @@ class SeiretsuGUI(QMainWindow):
         # Manual angle input
         dc_layout.addWidget(QLabel('Target Angle (rad):'), 0, 0)
         self.angle_spinbox = QDoubleSpinBox()
-        self.angle_spinbox.setRange(-10.0, 10.0)
+        self.angle_spinbox.setRange(-180.0, 180.0)
         self.angle_spinbox.setDecimals(2)
         self.angle_spinbox.setSingleStep(0.1)
         self.angle_spinbox.setValue(0.0)
@@ -289,6 +306,26 @@ class SeiretsuGUI(QMainWindow):
         self.add_log_message(f'Moving right from current angle: {self.current_dc_angle:.3f} rad')
         self.ros_node.send_command('moveright')
 
+    def left_action_command(self):
+        """Execute left action command"""
+        self.add_log_message('Executing LEFT action sequence')
+        self.ros_node.send_command('left')
+
+    def middle_action_command(self):
+        """Execute middle action command"""
+        self.add_log_message('Executing MIDDLE action sequence')
+        self.ros_node.send_command('middle')
+
+    def right_action_command(self):
+        """Execute right action command"""
+        self.add_log_message('Executing RIGHT action sequence')
+        self.ros_node.send_command('right')
+
+    def close_command(self):
+        """Execute close command"""
+        self.add_log_message('Executing CLOSE command - setting servos 3 and 4 to 180°')
+        self.ros_node.send_command('close')
+
     def get_current_dc_angle(self):
         """Get the current DC motor angle in radians"""
         return self.current_dc_angle
@@ -326,8 +363,6 @@ class SeiretsuGUI(QMainWindow):
         status_text = status_map.get(msg.status, "UNKNOWN")
         self.dc_status_label.setText(f'DC Motor Status: {status_text}')
 
-        # Update angle spinbox to current position
-        self.angle_spinbox.setValue(msg.position_rad)
 
     def add_log_message(self, message):
         """Add message to log display"""
